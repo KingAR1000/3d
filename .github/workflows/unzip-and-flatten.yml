@@ -1,0 +1,60 @@
+name: Unpack and Flatten ZIPs
+
+on:
+  push:
+    paths:
+      - '**/*.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Unpack and Flatten
+        run: |
+          # Allow searching for hidden files and recursive globbing
+          shopt -s globstar nullglob dotglob
+          
+          for zip in **/*.zip; do
+            echo "Processing $zip..."
+            
+            # Create a temporary directory to peek inside the ZIP
+            mkdir -p ./temp_extraction
+            unzip -o "$zip" -d ./temp_extraction
+            
+            # Check if there is exactly 1 item and it's a directory
+            ITEM_COUNT=$(ls -1 ./temp_extraction | wc -l)
+            
+            if [ "$ITEM_COUNT" -eq 1 ] && [ -d ./temp_extraction/* ]; then
+              echo "Detected wrapper folder. Flattening..."
+              # Move contents of that subfolder to the root
+              mv ./temp_extraction/*/* .
+            else
+              echo "No wrapper folder found. Moving files to root..."
+              # Move everything in the ZIP to the root
+              mv ./temp_extraction/* .
+            fi
+            
+            # Clean up the zip and the temp folder
+            rm "$zip"
+            rm -rf ./temp_extraction
+          done
+
+      - name: Commit and Push
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Unpacked and flattened ZIP contents to root"
+            git push
+          fi
